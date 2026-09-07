@@ -1,0 +1,15 @@
+$kind: http-request
+name: "{{base_url}}/api/centers-and-projects/centers/ضع_هنا_id_المركز_الفرعي/"
+description: ""
+url: "{{base_url}}/api/centers-and-projects/centers/ضع_هنا_id_المركز_الفرعي/"
+method: PUT
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"مركز الفجر القرآني (المحدث)\",\r
+
+    \  \"address\": \"حي الياسمين - الشارع العام\"\r
+
+    }"
+order: 4417359090909605
