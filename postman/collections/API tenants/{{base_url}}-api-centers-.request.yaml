@@ -2,7 +2,7 @@ $kind: http-request
 name: "{{base_url}}/api/centers/"
 description: ""
 url: "{{base_url}}/api/centers-and-projects/centers/"
-method: POST
+method: GET
 headers:
   Authorization: Bearer {{jwt_token}}
   Tenant-ID: "{{tenant_id}}"

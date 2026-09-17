@@ -270,10 +270,10 @@ def tenant_login_view(request):
         username = data.get('username', 'manager').strip()
         password = data.get('password', '')
 
-        if not subdomain or not password:
+        if not subdomain or not username or not password:
             return JsonResponse({
                 "status": "error",
-                "message": "اسم النطاق الفرعي للمسجد (subdomain) وكلمة المرور مطلوبان"
+                "message": "اسم النطاق الفرعي للمسجد (subdomain)، اسم المستخدم، وكلمة المرور مطلوبان"
             }, status=400)
 
         # 1. التحقق من وجود المسجد وأنه نشط
@@ -285,12 +285,51 @@ def tenant_login_view(request):
                 "message": "المسجد غير موجود أو أن حسابه غير نشط"
             }, status=404)
 
-        # 2. التحقق من كلمة المرور (سواء من جدول الـ Tenant للمدير الافتراضي، أو من قاعدة المسجد)
-        is_authenticated = False
-        role = "TENANT_ADMIN"
+        # 2. تجهيز إعدادات قاعدة بيانات المستأجر ديناميكياً
+        db_name = tenant.db_name
+        if db_name not in settings.DATABASES:
+            master_db = settings.DATABASES['default']
+            new_db_config = master_db.copy()
+            new_db_config.update({
+                'NAME': db_name,
+                'USER': tenant.db_user or master_db.get('USER', 'manara_user'),
+                'PASSWORD': tenant.db_password_hash or master_db.get('PASSWORD', 'M@nara_2026_Str0ng!'),
+                'HOST': tenant.db_host or 'localhost',
+                'PORT': tenant.db_port or 5432,
+            })
+            settings.DATABASES[db_name] = new_db_config
 
-        if username == 'manager' and tenant.admin_password_hash:
-            is_authenticated = check_password(password, tenant.admin_password_hash)
+        # 3. التحقق من كلمة المرور من قاعدة بيانات المسجد (auth_user)
+        from django.contrib.auth import get_user_model
+        from tenant_modules.users.models import UserProfile
+        User = get_user_model()
+
+        target_user = None
+        role = "TENANT_ADMIN"
+        is_authenticated = False
+
+        try:
+            target_user = User.objects.using(db_name).get(username=username, is_active=True)
+            if check_password(password, target_user.password):
+                is_authenticated = True
+                try:
+                    profile = UserProfile.objects.using(db_name).get(user=target_user)
+                    if not profile.is_active:
+                        return JsonResponse({
+                            "status": "error",
+                            "message": "هذا الحساب غير نشط أو ملغى التنشيط"
+                        }, status=403)
+                    role = profile.role
+                except UserProfile.DoesNotExist:
+                    role = 'TENANT_ADMIN' if username == 'manager' else 'STUDENT'
+        except User.DoesNotExist:
+            pass
+
+        # خيار احتياطي لحساب manager الأصلي في حال كان مسجلاً بكلمة مرور المسجد
+        if not is_authenticated and username == 'manager' and tenant.admin_password_hash:
+            if check_password(password, tenant.admin_password_hash):
+                is_authenticated = True
+                role = "TENANT_ADMIN"
 
         if not is_authenticated:
             return JsonResponse({
@@ -298,7 +337,7 @@ def tenant_login_view(request):
                 "message": "اسم المستخدم أو كلمة المرور غير صحيحة"
             }, status=401)
 
-        # 3. توليد JWT Tokens
+        # 4. توليد JWT Tokens
         jwt_secret = getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY)
         access_lifetime = getattr(settings, 'JWT_ACCESS_TOKEN_LIFETIME_MINUTES', 60)
         
@@ -306,7 +345,8 @@ def tenant_login_view(request):
         payload = {
             "tenant_id": str(tenant.id),
             "subdomain": tenant.subdomain,
-            "username": username,
+            "username": target_user.username if target_user else username,
+            "user_id": str(target_user.id) if target_user else None,
             "role": role,
             "exp": now + timedelta(minutes=int(access_lifetime)),
             "iat": now
@@ -327,7 +367,8 @@ def tenant_login_view(request):
                     "subdomain": tenant.subdomain
                 },
                 "user": {
-                    "username": username,
+                    "id": str(target_user.id) if target_user else None,
+                    "username": target_user.username if target_user else username,
                     "role": role
                 }
             }

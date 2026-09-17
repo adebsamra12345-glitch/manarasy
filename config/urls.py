@@ -12,6 +12,7 @@ api_urlpatterns = [
     path('backups/', include('core_system.backups.urls')),
     
     # tenant_modules (Tenant DB)
+    path('users/', include('tenant_modules.users.urls')),
     path('centers-and-projects/', include('tenant_modules.centers_and_projects.urls')),
     path('halaqat/', include('tenant_modules.halaqat.urls')),
     path('students-and-parents/', include('tenant_modules.students_and_parents.urls')),

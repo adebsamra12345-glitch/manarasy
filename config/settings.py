@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'core_system.payments',
     'core_system.backups',
     # Tenant apps (tenant_modules)
+    'tenant_modules.users',
     'tenant_modules.centers_and_projects',
     'tenant_modules.halaqat',
     'tenant_modules.students_and_parents',
@@ -139,6 +140,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+AUTH_USER_MODEL = 'users.User'
 
 # config/settings.py
 

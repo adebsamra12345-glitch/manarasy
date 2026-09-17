@@ -4,6 +4,7 @@ class TenantRouter:
     """
     # قائمة بأسماء تطبيقات قالب المسجد
     tenant_apps = [
+        'users',
         'centers_and_projects',
         'halaqat',
         'students_and_parents',
