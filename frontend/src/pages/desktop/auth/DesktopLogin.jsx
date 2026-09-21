@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Eye, EyeSlash, User, Lock, Sparkle } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router-dom';
 import { login as loginApi } from '../../../services/api/authService';
@@ -33,10 +33,85 @@ const Login = () => {
     const [error, setError] = useState('');
     const [passwordFocused, setPasswordFocused] = useState(false);
     const [characterIdle, setCharacterIdle] = useState(false);
+    const [delivering, setDelivering] = useState(false);
+    // Hidden by default only when the character is actually visible and able to deliver it
+    // (wide desktop viewport, no reduced-motion preference) — otherwise the form must never
+    // stay hidden, so it starts revealed everywhere else.
+    const [formRevealed, setFormRevealed] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        const wideEnough = window.matchMedia('(min-width: 1025px)').matches;
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        return !(wideEnough && !reducedMotion);
+    });
+
+    const paperRef = useRef(null);
+    const cardRef = useRef(null);
+    const flyingPaperRef = useRef(null);
+
+    const deliverPaper = () => {
+        try {
+            const paperEl = paperRef.current;
+            const cardEl = cardRef.current;
+            const flyEl = flyingPaperRef.current;
+            if (!paperEl || !cardEl || !flyEl) {
+                setFormRevealed(true);
+                return;
+            }
+
+            const fromRect = paperEl.getBoundingClientRect();
+            const toRect = cardEl.getBoundingClientRect();
+            if (fromRect.width === 0 || toRect.width === 0) {
+                setFormRevealed(true);
+                return;
+            }
+
+            setDelivering(true);
+
+            const dx = fromRect.left - toRect.left;
+            const dy = fromRect.top - toRect.top;
+            const sx = fromRect.width / toRect.width;
+            const sy = fromRect.height / toRect.height;
+
+            flyEl.style.transformOrigin = '0 0';
+            flyEl.style.left = `${toRect.left}px`;
+            flyEl.style.top = `${toRect.top}px`;
+            flyEl.style.width = `${toRect.width}px`;
+            flyEl.style.height = `${toRect.height}px`;
+            flyEl.style.transition = 'none';
+            flyEl.style.opacity = '1';
+            flyEl.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+
+            // Force a reflow so the browser registers the start position before we transition.
+            void flyEl.offsetHeight;
+
+            requestAnimationFrame(() => {
+                flyEl.style.transition = 'transform 0.85s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.3s ease 0.55s';
+                flyEl.style.transform = 'translate(0px, 0px) scale(1, 1)';
+                flyEl.style.opacity = '0';
+            });
+
+            setTimeout(() => setFormRevealed(true), 600);
+        } catch {
+            setFormRevealed(true);
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => setCharacterIdle(true), 1850);
-        return () => clearTimeout(timer);
+        const idleTimer = setTimeout(() => setCharacterIdle(true), 1850);
+        let deliverTimer;
+        let fallbackTimer;
+        if (!formRevealed) {
+            deliverTimer = setTimeout(deliverPaper, 2700);
+            // Safety net: the login form must never stay hidden if the delivery animation
+            // fails to fire for any reason (measurement error, layout change, etc.).
+            fallbackTimer = setTimeout(() => setFormRevealed(true), 6000);
+        }
+        return () => {
+            clearTimeout(idleTimer);
+            if (deliverTimer) clearTimeout(deliverTimer);
+            if (fallbackTimer) clearTimeout(fallbackTimer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleChange = (e) => {
@@ -126,7 +201,7 @@ const Login = () => {
                     </p>
                 </div>
 
-                {/* Animated student character: walks in, sets down their bag, and settles in to study */}
+                {/* Animated student character: walks in, unfolds a paper, and delivers it to become the login form */}
                 <div className="login-character-stage" aria-hidden="true">
                     <div className="login-character-shadow"></div>
                     <div
@@ -135,18 +210,11 @@ const Login = () => {
                             characterIdle ? 'is-idle' : '',
                             passwordFocused ? 'is-covering-eyes' : '',
                             loading ? 'is-celebrating' : '',
+                            delivering ? 'is-delivering' : '',
                         ].filter(Boolean).join(' ')}
                     >
                         <div className="login-character-bounce">
                             <svg className="login-character-rig" viewBox="0 0 220 340" width="100%" height="100%">
-                                {/* Backpack */}
-                                <g className="login-character-backpack">
-                                    <rect x="120" y="156" width="44" height="56" rx="12" fill="var(--accent-orange)" />
-                                    <rect x="130" y="146" width="24" height="16" rx="6" fill="var(--accent-orange)" />
-                                    <rect x="136" y="168" width="12" height="18" rx="3" fill="#00000022" />
-                                    <rect x="126" y="176" width="32" height="7" rx="3.5" fill="#ffffff33" />
-                                </g>
-
                                 {/* Legs: sirwal peeking below the robe hem */}
                                 <g className="login-character-leg-left" style={{ transformOrigin: '94px 206px' }}>
                                     <rect x="82" y="206" width="24" height="76" rx="11" fill="#f0ede2" />
@@ -169,8 +237,8 @@ const Login = () => {
                                     <circle cx="110" cy="167" r="2.2" fill="#c9c4b8" />
                                     <circle cx="110" cy="188" r="2.2" fill="#c9c4b8" />
 
-                                    {/* Paper the student unfolds: it becomes a tiny login form */}
-                                    <g className="login-character-paper">
+                                    {/* Paper the student unfolds, then delivers to the form panel */}
+                                    <g className="login-character-paper" ref={paperRef}>
                                         <rect x="113" y="169" width="34" height="50" rx="3" fill="#ffffff" stroke="var(--primary-green)" strokeWidth="1.4" />
                                         <rect x="113" y="169" width="34" height="9" rx="3" fill="var(--primary-green)" />
                                         <rect x="117" y="185" width="26" height="6" rx="3" fill="#e3e0d3" />
@@ -228,7 +296,10 @@ const Login = () => {
 
             {/* Right Panel - Form */}
             <div className="login-form-panel">
-                <div className="login-card">
+                <div
+                    ref={cardRef}
+                    className={`login-card${formRevealed ? '' : ' login-card-hidden'}`}
+                >
                     <div className="login-card-header">
                         <h2>مرحباً بعودتك</h2>
                         <p>سجل دخولك لمتابعة لوحة التحكم وإدارة حلقاتك القرآنية</p>
@@ -338,6 +409,14 @@ const Login = () => {
                         مساعد منارة الذكي
                     </button>
                 </div>
+            </div>
+
+            {/* Flies from the character's hand to the form panel, growing into the real card */}
+            <div ref={flyingPaperRef} className="login-paper-flight" aria-hidden="true">
+                <div className="login-paper-flight-header"></div>
+                <div className="login-paper-flight-line"></div>
+                <div className="login-paper-flight-line"></div>
+                <div className="login-paper-flight-button"></div>
             </div>
         </div>
     );
