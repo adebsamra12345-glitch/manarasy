@@ -1214,19 +1214,23 @@ body {
     100% { transform: translate(-4px, 96px) rotate(-8deg); }
 }
 
-/* Book prop: settles into the character's hands once they've arrived */
-.login-character-book {
+/* Paper prop: the student unfolds it into a tiny login form once they've arrived */
+.login-character-paper {
+    transform-box: fill-box;
+    transform-origin: 50% 0%;
     opacity: 0;
-    transform: translateY(6px);
-    animation: character-book-appear 0.5s ease-out 1.9s forwards;
+    transform: scaleY(0.1);
+    animation: character-paper-unfold 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 1.9s both;
 }
 
-@keyframes character-book-appear {
-    to { opacity: 1; transform: translateY(0); }
+@keyframes character-paper-unfold {
+    0%   { opacity: 0; transform: scaleY(0.1); }
+    60%  { opacity: 1; transform: scaleY(1.08); }
+    100% { opacity: 1; transform: scaleY(1); }
 }
 
-.login-character.is-covering-eyes .login-character-book,
-.login-character.is-celebrating .login-character-book {
+.login-character.is-covering-eyes .login-character-paper,
+.login-character.is-celebrating .login-character-paper {
     opacity: 0;
     transition: opacity 0.2s ease;
 }
