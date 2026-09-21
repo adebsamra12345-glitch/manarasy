@@ -1,10 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Eye, EyeSlash, User, Lock, Sparkle } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router-dom';
-import { login } from '../services/api';
+import { login as loginApi } from '../../../services/api/authService';
+import { useAuthContext } from '../../../context/AuthContext';
 
-const Login = ({ onLoginSuccess }) => {
+const ROLE_DEFAULT_ROUTE = {
+    super_admin: '/super/dashboard',
+    tenant_admin: '/admin/dashboard',
+    teacher: '/teacher/dashboard',
+    TEACHER: '/teacher/dashboard',
+    parent: '/parent/dashboard',
+};
+
+const Login = () => {
     const navigate = useNavigate();
+    const { login: authLogin } = useAuthContext();
 
     // استخراج النطاق الفرعي من الرابط (مثال: alhuda.manarasy.com -> alhuda)
     const getSubdomain = () => {
@@ -40,14 +50,28 @@ const Login = ({ onLoginSuccess }) => {
         setLoading(true);
         setError('');
         try {
-            const data = await login(form);
+            const data = await loginApi(form);
             if (data.status === 'success') {
+                const userData = {
+                    id: data.data.user.id,
+                    username: data.data.user.username,
+                    role: data.data.user.role,
+                    tenant_id: data.data.tenant.id,
+                    tenant_name: data.data.tenant.name,
+                };
+                // حفظ في localStorage للتوافق مع الكود القديم
                 localStorage.setItem('access_token', data.data.access_token);
                 localStorage.setItem('tenant_id', data.data.tenant.id);
                 localStorage.setItem('tenant_name', data.data.tenant.name);
                 localStorage.setItem('user_role', data.data.user.role);
                 localStorage.setItem('username', data.data.user.username);
-                onLoginSuccess();
+                localStorage.setItem('user', JSON.stringify(userData));
+                // تحديث AuthContext
+                authLogin(userData, { access: data.data.access_token });
+                // التوجيه حسب الدور
+                const userRole = data.data.user.role ? data.data.user.role.toLowerCase() : '';
+                const route = ROLE_DEFAULT_ROUTE[userRole] || '/admin/dashboard';
+                navigate(route, { replace: true });
             } else {
                 setError(data.message || 'فشل تسجيل الدخول');
             }
@@ -212,3 +236,5 @@ const Login = ({ onLoginSuccess }) => {
 };
 
 export default Login;
+
+
