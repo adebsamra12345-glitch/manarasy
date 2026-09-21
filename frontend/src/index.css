@@ -694,8 +694,10 @@ body {
     position: relative;
     overflow: hidden;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 1.5rem;
     padding: 3rem;
     background-image:
         radial-gradient(circle at 20% 50%, rgba(255,255,255,0.05) 0%, transparent 60%),
@@ -1060,6 +1062,244 @@ body {
 
 .login-assistant-btn:hover {
     background: var(--accent-orange-hover);
+}
+
+/* ===================================
+   Login Character Animation
+   A student character that walks into the brand panel,
+   sets down their bag, and settles into an idle study pose.
+   =================================== */
+.login-character-stage {
+    position: relative;
+    width: 170px;
+    height: 264px;
+    flex-shrink: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.login-character-shadow {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    width: 130px;
+    height: 16px;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0) 75%);
+    transform: translateX(-50%);
+}
+
+.login-character {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    animation: character-enter 1.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes character-enter {
+    0%   { transform: translateX(140px); }
+    70%  { transform: translateX(0); }
+    85%  { transform: translateX(-4px); }
+    100% { transform: translateX(0); }
+}
+
+.login-character-bounce {
+    width: 100%;
+    height: 100%;
+    animation: character-idle-bob 2.4s ease-in-out 1.8s infinite;
+}
+
+@keyframes character-idle-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+}
+
+.login-character.is-celebrating .login-character-bounce {
+    animation: character-celebrate-bounce 0.6s ease-in-out infinite;
+}
+
+@keyframes character-celebrate-bounce {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    30%      { transform: translateY(-16px) rotate(-3deg); }
+    60%      { transform: translateY(0) rotate(3deg); }
+}
+
+.login-character-rig {
+    display: block;
+    overflow: visible;
+}
+
+/* Legs: walk swing during entrance, settle into the crouch that places the bag */
+.login-character-leg-left {
+    animation: character-leg-left-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+.login-character-leg-right {
+    animation: character-leg-right-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+@keyframes character-leg-left-cycle {
+    0%   { transform: rotate(22deg); }
+    12%  { transform: rotate(-20deg); }
+    24%  { transform: rotate(20deg); }
+    36%  { transform: rotate(-18deg); }
+    48%  { transform: rotate(14deg); }
+    58%  { transform: rotate(0deg); }
+    70%  { transform: rotate(0deg) translateY(0); }
+    78%  { transform: rotate(38deg) translateY(2px); }
+    88%  { transform: rotate(38deg) translateY(2px); }
+    100% { transform: rotate(0deg) translateY(0); }
+}
+
+@keyframes character-leg-right-cycle {
+    0%   { transform: rotate(-20deg); }
+    12%  { transform: rotate(20deg); }
+    24%  { transform: rotate(-18deg); }
+    36%  { transform: rotate(16deg); }
+    48%  { transform: rotate(-10deg); }
+    58%  { transform: rotate(0deg); }
+    70%  { transform: rotate(0deg) translateY(0); }
+    78%  { transform: rotate(-30deg) translateY(2px); }
+    88%  { transform: rotate(-30deg) translateY(2px); }
+    100% { transform: rotate(0deg) translateY(0); }
+}
+
+/* Arms: swing while walking, then reach down to place the bag on the ground */
+.login-character-arm-left {
+    animation: character-arm-left-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+.login-character-arm-right {
+    animation: character-arm-right-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+@keyframes character-arm-left-cycle {
+    0%   { transform: rotate(-24deg); }
+    24%  { transform: rotate(20deg); }
+    48%  { transform: rotate(-16deg); }
+    58%  { transform: rotate(0deg); }
+    70%  { transform: rotate(0deg); }
+    82%  { transform: rotate(55deg); }
+    92%  { transform: rotate(55deg); }
+    100% { transform: rotate(4deg); }
+}
+
+@keyframes character-arm-right-cycle {
+    0%   { transform: rotate(20deg); }
+    24%  { transform: rotate(-22deg); }
+    48%  { transform: rotate(14deg); }
+    58%  { transform: rotate(0deg); }
+    100% { transform: rotate(-4deg); }
+}
+
+.login-character.is-idle .login-character-arm-right {
+    animation: character-arm-idle-sway 3.6s ease-in-out infinite;
+}
+
+@keyframes character-arm-idle-sway {
+    0%, 100% { transform: rotate(-4deg); }
+    50%      { transform: rotate(2deg); }
+}
+
+/* Backpack: carried on the back, then lowered to the ground */
+.login-character-backpack {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: character-bag-carry 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+@keyframes character-bag-carry {
+    0%   { transform: translate(0, 0) rotate(0deg); }
+    70%  { transform: translate(0, 0) rotate(0deg); }
+    84%  { transform: translate(-4px, 96px) rotate(-8deg); }
+    100% { transform: translate(-4px, 96px) rotate(-8deg); }
+}
+
+/* Book prop: settles into the character's hands once they've arrived */
+.login-character-book {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: character-book-appear 0.5s ease-out 1.9s forwards;
+}
+
+@keyframes character-book-appear {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.login-character.is-covering-eyes .login-character-book,
+.login-character.is-celebrating .login-character-book {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+/* Idle breathing + head tilt + blink */
+.login-character-torso {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+}
+
+.login-character.is-idle .login-character-torso {
+    animation: character-breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes character-breathe {
+    0%, 100% { transform: scaleY(1); }
+    50%      { transform: scaleY(1.015); }
+}
+
+.login-character-head {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+}
+
+.login-character.is-idle .login-character-head {
+    animation: character-head-tilt 5s ease-in-out infinite;
+}
+
+@keyframes character-head-tilt {
+    0%, 100% { transform: rotate(0deg); }
+    30%      { transform: rotate(-4deg); }
+    60%      { transform: rotate(3deg); }
+}
+
+.login-character-eye {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: character-blink 4.5s ease-in-out infinite;
+}
+
+.login-character-eye-right {
+    animation-delay: 0.05s;
+}
+
+@keyframes character-blink {
+    0%, 92%, 100% { transform: scaleY(1); }
+    95%           { transform: scaleY(0.1); }
+}
+
+/* Peeking hands: cover the eyes while the password field is focused */
+.login-character-peek-hands {
+    opacity: 0;
+    transform: translateY(14px) scale(0.7);
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.login-character.is-covering-eyes .login-character-peek-hands {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.login-character.is-covering-eyes .login-character-eye,
+.login-character.is-covering-eyes .login-character-brow {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .login-character-stage {
+        display: none;
+    }
 }
 
 /* ===================================

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Eye, EyeSlash, User, Lock, Sparkle } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router-dom';
 import { login as loginApi } from '../../../services/api/authService';
@@ -31,6 +31,13 @@ const Login = () => {
     const [rememberMe, setRememberMe] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [passwordFocused, setPasswordFocused] = useState(false);
+    const [characterIdle, setCharacterIdle] = useState(false);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setCharacterIdle(true), 1850);
+        return () => clearTimeout(timer);
+    }, []);
 
     const handleChange = (e) => {
         setForm({ ...form, [e.target.name]: e.target.value });
@@ -118,6 +125,94 @@ const Login = () => {
                         نلتقي لنرتقي في رحاب القرآن الكريم — متابعة حفظ، تسميع، وتنظيم متكامل لحلقات الذكر في واجهة عصرية مريحة.
                     </p>
                 </div>
+
+                {/* Animated student character: walks in, sets down their bag, and settles in to study */}
+                <div className="login-character-stage" aria-hidden="true">
+                    <div className="login-character-shadow"></div>
+                    <div
+                        className={[
+                            'login-character',
+                            characterIdle ? 'is-idle' : '',
+                            passwordFocused ? 'is-covering-eyes' : '',
+                            loading ? 'is-celebrating' : '',
+                        ].filter(Boolean).join(' ')}
+                    >
+                        <div className="login-character-bounce">
+                            <svg className="login-character-rig" viewBox="0 0 220 340" width="100%" height="100%">
+                                {/* Backpack */}
+                                <g className="login-character-backpack">
+                                    <rect x="120" y="156" width="44" height="56" rx="12" fill="var(--accent-orange)" />
+                                    <rect x="130" y="146" width="24" height="16" rx="6" fill="var(--accent-orange)" />
+                                    <rect x="136" y="168" width="12" height="18" rx="3" fill="#00000022" />
+                                    <rect x="126" y="176" width="32" height="7" rx="3.5" fill="#ffffff33" />
+                                </g>
+
+                                {/* Legs */}
+                                <g className="login-character-leg-left" style={{ transformOrigin: '94px 206px' }}>
+                                    <rect x="82" y="206" width="24" height="76" rx="11" fill="#2b2b3a" />
+                                    <rect x="77" y="278" width="32" height="15" rx="7" fill="#f7f6f1" />
+                                </g>
+                                <g className="login-character-leg-right" style={{ transformOrigin: '124px 206px' }}>
+                                    <rect x="112" y="206" width="24" height="76" rx="11" fill="#2b2b3a" />
+                                    <rect x="109" y="278" width="32" height="15" rx="7" fill="#f7f6f1" />
+                                </g>
+
+                                {/* Torso */}
+                                <g className="login-character-torso">
+                                    <rect x="64" y="126" width="90" height="88" rx="28" fill="#f7f6f1" />
+                                    <path d="M64 154 q26 14 90 0 v-8 q-45 16 -90 0 z" fill="var(--accent-orange)" />
+                                    <rect x="64" y="126" width="90" height="18" rx="9" fill="var(--accent-orange)" />
+
+                                    {/* Book held at chest */}
+                                    <g className="login-character-book">
+                                        <rect x="118" y="176" width="30" height="22" rx="2" fill="#ffffff" />
+                                        <rect x="118" y="176" width="30" height="22" rx="2" fill="none" stroke="var(--primary-green)" strokeWidth="1.5" />
+                                        <line x1="133" y1="178" x2="133" y2="196" stroke="var(--primary-green)" strokeWidth="1.5" />
+                                        <line x1="122" y1="183" x2="130" y2="183" stroke="#c9c4b8" strokeWidth="1.4" />
+                                        <line x1="122" y1="188" x2="130" y2="188" stroke="#c9c4b8" strokeWidth="1.4" />
+                                        <line x1="136" y1="183" x2="144" y2="183" stroke="#c9c4b8" strokeWidth="1.4" />
+                                        <line x1="136" y1="188" x2="144" y2="188" stroke="#c9c4b8" strokeWidth="1.4" />
+                                    </g>
+
+                                    {/* Arms */}
+                                    <g className="login-character-arm-left" style={{ transformOrigin: '67px 134px' }}>
+                                        <rect x="56" y="134" width="22" height="72" rx="11" fill="#f7f6f1" />
+                                        <circle cx="67" cy="204" r="12" fill="#e3a97e" />
+                                    </g>
+                                    <g className="login-character-arm-right" style={{ transformOrigin: '151px 134px' }}>
+                                        <rect x="140" y="134" width="22" height="72" rx="11" fill="#f7f6f1" />
+                                        <circle cx="151" cy="204" r="12" fill="#e3a97e" />
+                                    </g>
+
+                                    {/* Head */}
+                                    <g className="login-character-head" style={{ transformOrigin: '110px 126px' }}>
+                                        <circle cx="110" cy="78" r="40" fill="#e3a97e" />
+                                        <circle cx="72" cy="80" r="7" fill="#e3a97e" />
+                                        <circle cx="148" cy="80" r="7" fill="#e3a97e" />
+                                        <path d="M68,72 A46,44 0 0 1 152,72 Q110,64 68,72 Z" fill="#3a2a1e" />
+                                        <path d="M68,72 Q64,86 70,98" fill="none" stroke="#3a2a1e" strokeWidth="8" strokeLinecap="round" />
+                                        <path d="M152,72 Q156,86 150,98" fill="none" stroke="#3a2a1e" strokeWidth="8" strokeLinecap="round" />
+                                        <g className="login-character-brow">
+                                            <rect x="90" y="70" width="13" height="4" rx="2" fill="#3a2a1e" />
+                                            <rect x="117" y="70" width="13" height="4" rx="2" fill="#3a2a1e" />
+                                        </g>
+                                        <g className="login-character-eye"><ellipse cx="97" cy="82" rx="4" ry="5" fill="var(--primary-green)" /></g>
+                                        <g className="login-character-eye login-character-eye-right"><ellipse cx="123" cy="82" rx="4" ry="5" fill="var(--primary-green)" /></g>
+                                        <circle cx="82" cy="94" r="6" fill="var(--accent-orange)" opacity="0.18" />
+                                        <circle cx="138" cy="94" r="6" fill="var(--accent-orange)" opacity="0.18" />
+                                        <path d="M98 96 q12 10 24 0" stroke="#a05a2c" strokeWidth="3" fill="none" strokeLinecap="round" />
+
+                                        {/* Peeking hands, shown while typing the password */}
+                                        <g className="login-character-peek-hands">
+                                            <circle cx="95" cy="80" r="13" fill="#e3a97e" />
+                                            <circle cx="125" cy="80" r="13" fill="#e3a97e" />
+                                        </g>
+                                    </g>
+                                </g>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Right Panel - Form */}
@@ -161,6 +256,8 @@ const Login = () => {
                                     name="password"
                                     value={form.password}
                                     onChange={handleChange}
+                                    onFocus={() => setPasswordFocused(true)}
+                                    onBlur={() => setPasswordFocused(false)}
                                     placeholder="••••••••••••"
                                     className="login-input with-icon"
                                     autoComplete="current-password"
