@@ -773,6 +773,16 @@ body {
     width: 100%;
     max-width: 480px;
     box-shadow: 0 8px 40px rgba(0,0,0,0.08);
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+/* Kept invisible until the character delivers the paper that becomes this card */
+.login-card-hidden {
+    opacity: 0;
+    transform: scale(0.85);
+    pointer-events: none;
 }
 
 .login-card-header {
@@ -1128,7 +1138,7 @@ body {
     overflow: visible;
 }
 
-/* Legs: walk swing during entrance, settle into the crouch that places the bag */
+/* Legs: walk swing during entrance, settle into a neutral standing pose */
 .login-character-leg-left {
     animation: character-leg-left-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
 }
@@ -1143,11 +1153,7 @@ body {
     24%  { transform: rotate(20deg); }
     36%  { transform: rotate(-18deg); }
     48%  { transform: rotate(14deg); }
-    58%  { transform: rotate(0deg); }
-    70%  { transform: rotate(0deg) translateY(0); }
-    78%  { transform: rotate(38deg) translateY(2px); }
-    88%  { transform: rotate(38deg) translateY(2px); }
-    100% { transform: rotate(0deg) translateY(0); }
+    58%, 100% { transform: rotate(0deg); }
 }
 
 @keyframes character-leg-right-cycle {
@@ -1156,14 +1162,10 @@ body {
     24%  { transform: rotate(-18deg); }
     36%  { transform: rotate(16deg); }
     48%  { transform: rotate(-10deg); }
-    58%  { transform: rotate(0deg); }
-    70%  { transform: rotate(0deg) translateY(0); }
-    78%  { transform: rotate(-30deg) translateY(2px); }
-    88%  { transform: rotate(-30deg) translateY(2px); }
-    100% { transform: rotate(0deg) translateY(0); }
+    58%, 100% { transform: rotate(0deg); }
 }
 
-/* Arms: swing while walking, then reach down to place the bag on the ground */
+/* Arms: swing while walking, then settle at the character's side */
 .login-character-arm-left {
     animation: character-arm-left-cycle 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
 }
@@ -1177,9 +1179,6 @@ body {
     24%  { transform: rotate(20deg); }
     48%  { transform: rotate(-16deg); }
     58%  { transform: rotate(0deg); }
-    70%  { transform: rotate(0deg); }
-    82%  { transform: rotate(55deg); }
-    92%  { transform: rotate(55deg); }
     100% { transform: rotate(4deg); }
 }
 
@@ -1200,21 +1199,7 @@ body {
     50%      { transform: rotate(2deg); }
 }
 
-/* Backpack: carried on the back, then lowered to the ground */
-.login-character-backpack {
-    transform-box: fill-box;
-    transform-origin: 50% 50%;
-    animation: character-bag-carry 1.8s cubic-bezier(0.45, 0, 0.55, 1) forwards;
-}
-
-@keyframes character-bag-carry {
-    0%   { transform: translate(0, 0) rotate(0deg); }
-    70%  { transform: translate(0, 0) rotate(0deg); }
-    84%  { transform: translate(-4px, 96px) rotate(-8deg); }
-    100% { transform: translate(-4px, 96px) rotate(-8deg); }
-}
-
-/* Paper prop: the student unfolds it into a tiny login form once they've arrived */
+/* Paper prop: the student unfolds it, then it flies away to become the real login form */
 .login-character-paper {
     transform-box: fill-box;
     transform-origin: 50% 0%;
@@ -1230,9 +1215,49 @@ body {
 }
 
 .login-character.is-covering-eyes .login-character-paper,
-.login-character.is-celebrating .login-character-paper {
+.login-character.is-celebrating .login-character-paper,
+.login-character.is-delivering .login-character-paper {
     opacity: 0;
     transition: opacity 0.2s ease;
+}
+
+/* The flying paper clone: FLIP-animated from the character's hand to the login card via inline styles */
+.login-paper-flight {
+    position: fixed;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 8%;
+    padding: 8% 10%;
+    background: #ffffff;
+    border: 1.5px solid var(--primary-green);
+    border-radius: var(--border-radius-xl);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 200;
+}
+
+.login-paper-flight-header {
+    width: 55%;
+    height: 12%;
+    border-radius: 999px;
+    background: var(--primary-green);
+}
+
+.login-paper-flight-line {
+    width: 100%;
+    height: 9%;
+    border-radius: 999px;
+    background: #e3e0d3;
+}
+
+.login-paper-flight-button {
+    width: 100%;
+    height: 12%;
+    margin-top: auto;
+    border-radius: 999px;
+    background: var(--accent-orange);
 }
 
 /* Idle breathing + head tilt + blink */
