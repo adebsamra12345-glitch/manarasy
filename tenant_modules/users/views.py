@@ -90,6 +90,8 @@ def serialize_profile(prof):
         "latitude": float(prof.latitude) if prof.latitude is not None else None,
         "longitude": float(prof.longitude) if prof.longitude is not None else None,
         "reached_page": prof.reached_page or 1,
+        "parent_user_id": str(prof.parent_user.id) if prof.parent_user else None,
+        "parent_user_name": f"{prof.parent_user.first_name} {prof.parent_user.last_name}".strip() if prof.parent_user else None,
         "enrollments": enrollments_data
     }
 
@@ -130,6 +132,15 @@ def execute_user_creation(db_name, data):
     username = data.get('username', '').strip() if data.get('username') else ''
     password = data.get('password', '').strip()
     role = data.get('role', 'STUDENT')
+    roles = data.get('roles', [])
+    if roles and isinstance(roles, list) and len(roles) > 0:
+        role = roles[0]
+    elif role:
+        roles = [role]
+    else:
+        role = 'STUDENT'
+        roles = ['STUDENT']
+
     first_name = data.get('first_name', '').strip()
     last_name = data.get('last_name', '').strip()
     email = data.get('email', '').strip()
@@ -142,13 +153,32 @@ def execute_user_creation(db_name, data):
     father_phone = data.get('father_phone', '').strip()
     mother_phone = data.get('mother_phone', '').strip()
     health_status = data.get('health_status', '').strip()
-    monthly_income = data.get('monthly_income')
-    orphan_status = data.get('orphan_status') # 'm' (أم), 'f' (أب), 't' (اثنان)
-    latitude = data.get('latitude')
-    longitude = data.get('longitude')
+
+    raw_income = data.get('monthly_income')
+    monthly_income = raw_income if (raw_income is not None and str(raw_income).strip() != '') else None
+
+    raw_orphan = data.get('orphan_status')
+    orphan_status = raw_orphan if raw_orphan in ['m', 'f', 't'] else None
+
+    raw_lat = data.get('latitude')
+    latitude = raw_lat if (raw_lat is not None and str(raw_lat).strip() != '') else None
+
+    raw_lng = data.get('longitude')
+    longitude = raw_lng if (raw_lng is not None and str(raw_lng).strip() != '') else None
+
     center_id = data.get('center_id')
 
-    if role == 'STUDENT' and guardian_type == 'MOTHER':
+    raw_page = data.get('reached_page', 1)
+    try:
+        reached_page = int(raw_page) if (raw_page is not None and str(raw_page).strip() != '') else 1
+    except (ValueError, TypeError):
+        reached_page = 1
+
+    is_active = data.get('is_active', True)
+    if isinstance(is_active, str):
+        is_active = is_active.lower() in ['true', '1', 'yes']
+
+    if ('STUDENT' in roles or role == 'STUDENT') and guardian_type == 'MOTHER':
         if not mother_name or not mother_last_name:
             raise ValueError("عذراً، لا يمكن اختيار الأم كولي أمر إلا في حال إدخال اسم الأم وكنيتها")
 
@@ -177,7 +207,7 @@ def execute_user_creation(db_name, data):
             raise ValueError("المركز المحدد غير موجود")
 
     # قاعدة مدير المركز الواحد: لا يمكن أن يكون للمركز أكثر من مدير واحد
-    if role == 'CENTER_MANAGER' and center:
+    if ('CENTER_MANAGER' in roles or role == 'CENTER_MANAGER') and center:
         if center.manager and center.manager.is_active:
             raise ValueError(f"المركز '{center.name}' يملك مديراً بالفعل ولا يمكن إضافة أكثر من مدير واحد للمركز")
 
@@ -187,18 +217,17 @@ def execute_user_creation(db_name, data):
         first_name=first_name,
         last_name=last_name,
         email=email,
-        is_active=True
+        is_active=is_active
     )
 
-    if role == 'CENTER_MANAGER' and center:
+    if ('CENTER_MANAGER' in roles or role == 'CENTER_MANAGER') and center:
         center.manager = user
         center.save(using=db_name)
-
-    reached_page = data.get('reached_page', 1)
 
     profile = UserProfile.objects.using(db_name).create(
         user=user,
         role=role,
+        roles=roles,
         center=center,
         father_name=father_name,
         mother_name=mother_name,
@@ -208,13 +237,15 @@ def execute_user_creation(db_name, data):
         father_phone=father_phone,
         mother_phone=mother_phone,
         health_status=health_status,
-        monthly_income=monthly_income if monthly_income is not None else None,
-        orphan_status=orphan_status if orphan_status in ['m', 'f', 't'] else None,
-        latitude=latitude if latitude is not None else None,
-        longitude=longitude if longitude is not None else None,
+        monthly_income=monthly_income,
+        orphan_status=orphan_status,
+        latitude=latitude,
+        longitude=longitude,
         reached_page=reached_page,
-        is_active=True
+        is_active=is_active
     )
+    profile.set_roles(roles)
+    profile.save(using=db_name)
 
     parent_profile = None
 
@@ -340,6 +371,12 @@ def execute_user_update(db_name, user, data):
     except UserProfile.DoesNotExist:
         profile = UserProfile.objects.using(db_name).create(user=user, role='STUDENT')
 
+    if 'username' in data and data['username'] and data['username'].strip() != user.username:
+        new_username = data['username'].strip()
+        if User.objects.using(db_name).filter(username=new_username).exclude(id=user.id).exists():
+            raise ValueError(f"اسم المستخدم '{new_username}' مستخدم بالفعل في النظام")
+        user.username = new_username
+
     if 'first_name' in data:
         user.first_name = data['first_name']
     if 'last_name' in data:
@@ -348,8 +385,21 @@ def execute_user_update(db_name, user, data):
         user.email = data['email']
     if 'password' in data and data['password']:
         user.password = make_password(data['password'])
+    if 'is_active' in data:
+        raw_act = data['is_active']
+        is_act = raw_act if isinstance(raw_act, bool) else (str(raw_act).lower() in ['true', '1', 'yes'])
+        user.is_active = is_act
+        profile.is_active = is_act
 
     user.save(using=db_name)
+
+    if 'roles' in data:
+        new_roles = data['roles']
+        if not new_roles or not isinstance(new_roles, list) or len(new_roles) == 0:
+            raise ValueError("يجب اختيار دور واحد على الأقل للمستخدم")
+        profile.set_roles(new_roles)
+    elif 'role' in data:
+        profile.set_roles([data['role']])
 
     if 'phone' in data:
         profile.phone = data['phone']
@@ -368,21 +418,31 @@ def execute_user_update(db_name, user, data):
     if 'health_status' in data:
         profile.health_status = data['health_status']
     if 'monthly_income' in data:
-        profile.monthly_income = data['monthly_income']
+        raw_income = data['monthly_income']
+        profile.monthly_income = raw_income if (raw_income is not None and str(raw_income).strip() != '') else None
     if 'orphan_status' in data:
-        profile.orphan_status = data['orphan_status']
+        raw_orphan = data['orphan_status']
+        profile.orphan_status = raw_orphan if raw_orphan in ['m', 'f', 't'] else None
     if 'latitude' in data:
-        profile.latitude = data['latitude']
+        raw_lat = data['latitude']
+        profile.latitude = raw_lat if (raw_lat is not None and str(raw_lat).strip() != '') else None
     if 'longitude' in data:
-        profile.longitude = data['longitude']
+        raw_lng = data['longitude']
+        profile.longitude = raw_lng if (raw_lng is not None and str(raw_lng).strip() != '') else None
+    if 'reached_page' in data:
+        raw_page = data['reached_page']
+        try:
+            profile.reached_page = int(raw_page) if (raw_page is not None and str(raw_page).strip() != '') else 1
+        except (ValueError, TypeError):
+            profile.reached_page = 1
 
     if 'center_id' in data:
         if data['center_id']:
             center = Center.objects.using(db_name).get(id=data['center_id'])
-            if profile.role == 'CENTER_MANAGER' and center.manager and center.manager != user:
+            if 'CENTER_MANAGER' in profile.get_roles() and center.manager and center.manager != user:
                 raise ValueError("لا يمكن إسناد مدير مركز جديد لمركز يملك مديراً بالفعل")
             profile.center = center
-            if profile.role == 'CENTER_MANAGER':
+            if 'CENTER_MANAGER' in profile.get_roles():
                 center.manager = user
                 center.save(using=db_name)
         else:
@@ -409,6 +469,14 @@ def execute_user_delete(db_name, user):
         if profile.role == 'CENTER_MANAGER' and profile.center and profile.center.manager == user:
             profile.center.manager = None
             profile.center.save(using=db_name)
+
+        # التعامل مع تبعات حذف المعلم: إلغاء إسناد الحلقات المرتبطة به
+        if profile.role == 'TEACHER' or 'TEACHER' in profile.get_roles():
+            from tenant_modules.halaqat.models import Halaqa
+            full_name = f"{user.first_name} {user.last_name}".strip()
+            teacher_identifiers = [name for name in [full_name, user.username] if name]
+            for identifier in teacher_identifiers:
+                Halaqa.objects.using(db_name).filter(teacher_name__iexact=identifier).update(teacher_name='')
 
         # إلغاء تنشيط حساب الأب تلقائياً إذا كان المستخدم طالب وليس للأب أبناء آخرين نشطين
         if profile.role == 'STUDENT' and profile.parent_user:
@@ -460,10 +528,41 @@ def user_list_create_view(request):
 
     if request.method == 'GET':
         try:
-            users = User.objects.using(db_name).filter(is_active=True).select_related('profile').order_by('-date_joined')
+            role_param = request.GET.get('role')
+            center_id_param = request.GET.get('center_id')
+            status_param = request.GET.get('status')
+
+            if requester_role == 'CENTER_MANAGER':
+                if not requester_profile or not requester_profile.center:
+                    return JsonResponse({"status": "success", "count": 0, "data": []}, status=200)
+                center_id_param = str(requester_profile.center.id)
+
+            if status_param == 'inactive':
+                users = User.objects.using(db_name).filter(is_active=False)
+            elif status_param == 'all':
+                users = User.objects.using(db_name).all()
+            else:
+                users = User.objects.using(db_name).filter(is_active=True)
+
+            if requester_role == 'CENTER_MANAGER':
+                users = users.filter(profile__center=requester_profile.center).exclude(profile__role='TENANT_ADMIN')
+
+            users = users.select_related('profile', 'profile__center').order_by('-date_joined')
             res = []
             for u in users:
                 prof = getattr(u, 'profile', None)
+                if not prof:
+                    continue
+                user_roles = prof.get_roles()
+                if requester_role == 'CENTER_MANAGER' and ('TENANT_ADMIN' in user_roles or prof.role == 'TENANT_ADMIN'):
+                    continue
+                if role_param and role_param != 'all':
+                    if prof.role != role_param and role_param not in user_roles:
+                        continue
+                if center_id_param and center_id_param != 'all':
+                    if not prof.center or str(prof.center.id) != str(center_id_param):
+                        continue
+
                 item = {
                     "id": str(u.id),
                     "username": u.username,
@@ -471,6 +570,7 @@ def user_list_create_view(request):
                     "last_name": u.last_name,
                     "email": u.email,
                     "role": prof.role if prof else "UNKNOWN",
+                    "roles": user_roles,
                     "center_id": str(prof.center.id) if prof and prof.center else None,
                     "center_name": prof.center.name if prof and prof.center else None,
                     "is_active": u.is_active,
@@ -615,12 +715,24 @@ def user_detail_view(request, pk):
     requester_username = token_payload.get('username')
 
     try:
+        requester_user = User.objects.using(db_name).get(username=requester_username)
+        requester_profile = UserProfile.objects.using(db_name).get(user=requester_user)
+    except Exception:
+        requester_profile = None
+
+    try:
         target_user = User.objects.using(db_name).get(id=pk)
         target_profile = UserProfile.objects.using(db_name).get(user=target_user)
     except User.DoesNotExist:
         return JsonResponse({"status": "error", "message": "الحساب المطلوب غير موجود"}, status=404)
     except UserProfile.DoesNotExist:
         target_profile = UserProfile.objects.using(db_name).create(user=target_user, role='STUDENT')
+
+    if requester_role == 'CENTER_MANAGER':
+        if not requester_profile or not requester_profile.center or target_profile.center != requester_profile.center:
+            return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز الوصول لحسابات خارج مركزه"}, status=403)
+        if target_profile.role == 'TENANT_ADMIN' or 'TENANT_ADMIN' in target_profile.get_roles():
+            return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز الوصول لحسابات الأدمن الرئيسي"}, status=403)
 
     # حماية manager الافتراضي
     if target_user.username == 'manager' and request.method in ['PUT', 'PATCH', 'DELETE']:
@@ -634,10 +746,12 @@ def user_detail_view(request, pk):
             "last_name": target_user.last_name,
             "email": target_user.email,
             "role": target_profile.role,
+            "roles": target_profile.get_roles(),
             "center_id": str(target_profile.center.id) if target_profile.center else None,
             "center_name": target_profile.center.name if target_profile.center else None,
             "is_active": target_user.is_active,
-            "created_at": target_user.date_joined.isoformat()
+            "created_at": target_user.date_joined.isoformat(),
+            "last_login": target_user.last_login.isoformat() if target_user.last_login else None
         }
         data.update(serialize_profile(target_profile))
         return JsonResponse({"status": "success", "data": data}, status=200)
@@ -667,6 +781,8 @@ def user_detail_view(request, pk):
         if requester_role == 'CENTER_MANAGER':
             if target_profile.role in ['TENANT_ADMIN', 'CENTER_MANAGER']:
                 return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز تعديل حسابات الأدمن الرئيسي أو مدراء المراكز"}, status=403)
+            if requester_profile and requester_profile.center:
+                data['center_id'] = str(requester_profile.center.id)
 
         if requester_role not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
             return JsonResponse({"status": "error", "message": "صلاحيات غير كافية لتعديل هذا الحساب"}, status=403)
@@ -703,11 +819,16 @@ def user_detail_view(request, pk):
                 return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز حذف حسابات الأدمن الرئيسي أو مدراء المراكز"}, status=403)
 
         if requester_role not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
-            return JsonResponse({"status": "error", "message": "صلاحيات غير كافية لحذف هذا الحساب"}, status=403)
+            return JsonResponse({"status": "error", "message": "صلاحيات الأدمن الرئيسي أو مدير المركز مطلوبة لحذف هذا الحساب"}, status=403)
+
+        if target_user.username == requester_username:
+            return JsonResponse({"status": "error", "message": "لا يمكنك حذف حسابك الشخصي الحالي أثناء تسجيل الدخول"}, status=400)
 
         try:
             execute_user_delete(db_name, target_user)
-            return JsonResponse({"status": "success", "message": "تم حذف (إلغاء تنشيط) الحساب بنجاح"})
+            user_label = "حساب المعلم" if target_profile.role == 'TEACHER' or 'TEACHER' in target_profile.get_roles() else "الحساب"
+            target_name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.username
+            return JsonResponse({"status": "success", "message": f"تم حذف {user_label} ({target_name}) بنجاح"})
         except ValueError as e:
             return JsonResponse({"status": "error", "message": str(e)}, status=400)
         except Exception as e:
@@ -734,6 +855,7 @@ def user_impersonate_view(request, pk):
         return JsonResponse({"status": "error", "message": "التوكن مفقودة أو غير صالحة"}, status=401)
 
     requester_role = token_payload.get('role')
+    requester_username = token_payload.get('username')
     if requester_role not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
         return JsonResponse({"status": "error", "message": "صلاحيات الأدمن الرئيسي أو مدير المركز مطلوبة لاستخدام الدخول بديل الحساب"}, status=403)
 
@@ -746,6 +868,15 @@ def user_impersonate_view(request, pk):
         target_profile = UserProfile.objects.using(db_name).create(user=target_user, role='STUDENT')
 
     if requester_role == 'CENTER_MANAGER':
+        try:
+            requester_user = User.objects.using(db_name).get(username=requester_username)
+            requester_profile = UserProfile.objects.using(db_name).get(user=requester_user)
+        except Exception:
+            requester_profile = None
+
+        if not requester_profile or not requester_profile.center or target_profile.center != requester_profile.center:
+            return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز الدخول بحسابات خارج مركزه"}, status=403)
+
         if target_profile.role in ['TENANT_ADMIN', 'CENTER_MANAGER']:
             return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز الدخول بحساب أدمن أو مدير مركز آخر"}, status=403)
 
@@ -791,9 +922,24 @@ def account_request_list_view(request):
     if not token_payload or token_payload.get('role') not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
         return JsonResponse({"status": "error", "message": "صلاحيات الأدمن أو مدير المركز مطلوبة لمشاهدة الطلبات"}, status=403)
 
+    requester_role = token_payload.get('role')
+    requester_username = token_payload.get('username')
+
     if request.method == 'GET':
         try:
             reqs = AccountRequest.objects.using(db_name).filter(status='PENDING').select_related('requested_by', 'target_user', 'center').order_by('-created_at')
+
+            if requester_role == 'CENTER_MANAGER':
+                try:
+                    requester_user = User.objects.using(db_name).get(username=requester_username)
+                    requester_profile = UserProfile.objects.using(db_name).get(user=requester_user)
+                    if requester_profile and requester_profile.center:
+                        reqs = reqs.filter(center=requester_profile.center)
+                    else:
+                        reqs = reqs.none()
+                except Exception:
+                    reqs = reqs.none()
+
             res = []
             for r in reqs:
                 res.append({
@@ -828,12 +974,24 @@ def account_request_approve_view(request, pk):
     if not token_payload or token_payload.get('role') not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
         return JsonResponse({"status": "error", "message": "صلاحيات الأدمن أو مدير المركز مطلوبة للموافقة على الطلبات"}, status=403)
 
+    requester_role = token_payload.get('role')
+    requester_username = token_payload.get('username')
+
     try:
         acc_req = AccountRequest.objects.using(db_name).get(id=pk, status='PENDING')
     except AccountRequest.DoesNotExist:
         return JsonResponse({"status": "error", "message": "الطلب المعلق غير موجود أو تم اتخاذ إجراء عليه سابقاً"}, status=404)
 
-    reviewer_user = User.objects.using(db_name).get(username=token_payload.get('username'))
+    if requester_role == 'CENTER_MANAGER':
+        try:
+            requester_user = User.objects.using(db_name).get(username=requester_username)
+            requester_profile = UserProfile.objects.using(db_name).get(user=requester_user)
+            if not requester_profile or not requester_profile.center or acc_req.center != requester_profile.center:
+                return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز الموافقة على طلبات خارج مركزه"}, status=403)
+        except Exception:
+            return JsonResponse({"status": "error", "message": "خطأ في التحقق من ملف مدير المركز"}, status=403)
+
+    reviewer_user = User.objects.using(db_name).get(username=requester_username)
 
     try:
         if acc_req.action_type == 'CREATE':
@@ -869,13 +1027,25 @@ def account_request_reject_view(request, pk):
     if not token_payload or token_payload.get('role') not in ['TENANT_ADMIN', 'CENTER_MANAGER']:
         return JsonResponse({"status": "error", "message": "صلاحيات الأدمن أو مدير المركز مطلوبة لرفض الطلبات"}, status=403)
 
+    requester_role = token_payload.get('role')
+    requester_username = token_payload.get('username')
+
     try:
         acc_req = AccountRequest.objects.using(db_name).get(id=pk, status='PENDING')
     except AccountRequest.DoesNotExist:
         return JsonResponse({"status": "error", "message": "الطلب غير موجود أو تم اتخاذ إجراء عليه سابقاً"}, status=404)
 
+    if requester_role == 'CENTER_MANAGER':
+        try:
+            requester_user = User.objects.using(db_name).get(username=requester_username)
+            requester_profile = UserProfile.objects.using(db_name).get(user=requester_user)
+            if not requester_profile or not requester_profile.center or acc_req.center != requester_profile.center:
+                return JsonResponse({"status": "error", "message": "لا يحق لمدير المركز رفض طلبات خارج مركزه"}, status=403)
+        except Exception:
+            return JsonResponse({"status": "error", "message": "خطأ في التحقق من ملف مدير المركز"}, status=403)
+
     data = parse_body(request)
-    reviewer_user = User.objects.using(db_name).get(username=token_payload.get('username'))
+    reviewer_user = User.objects.using(db_name).get(username=requester_username)
 
     acc_req.status = 'REJECTED'
     acc_req.reviewed_by = reviewer_user
@@ -883,3 +1053,4 @@ def account_request_reject_view(request, pk):
     acc_req.save(using=db_name)
 
     return JsonResponse({"status": "success", "message": "تم رفض الطلب بنجاح"})
+

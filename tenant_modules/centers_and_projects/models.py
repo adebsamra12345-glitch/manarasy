@@ -1,4 +1,5 @@
 import uuid
+import datetime
 from django.db import models
 from django.conf import settings
 
@@ -43,6 +44,7 @@ class EvaluationGrade(models.Model):
     template = models.ForeignKey(EvaluationTemplate, on_delete=models.CASCADE, related_name='grades')
     name = models.CharField(max_length=100)
     requires_repeat = models.BooleanField(default=False)
+    stop_test_action = models.CharField(max_length=30, default='لا', null=True, blank=True)
     order = models.IntegerField(default=1)
     color_code = models.CharField(max_length=30, null=True, blank=True)
 
@@ -52,6 +54,38 @@ class EvaluationGrade(models.Model):
 
     def __str__(self):
         return f"{self.template.title} - {self.name}"
+
+
+class TestRubric(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=150)
+    description = models.TextField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'test_rubrics'
+
+    def __str__(self):
+        return self.title
+
+
+class RubricErrorType(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rubric = models.ForeignKey(TestRubric, on_delete=models.CASCADE, related_name='error_types')
+    name = models.CharField(max_length=150)
+    value = models.DecimalField(max_digits=5, decimal_places=2, default=1.00)
+    max_count = models.IntegerField(default=3)
+    notes = models.TextField(null=True, blank=True)
+    order = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = 'rubric_error_types'
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.rubric.title} - {self.name}"
 
 
 class ExamTemplate(models.Model):
@@ -198,3 +232,32 @@ class SystemNotification(models.Model):
 
     class Meta:
         db_table = 'system_notifications'
+
+
+class MosqueWeeklySchedule(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    center = models.ForeignKey(Center, on_delete=models.CASCADE, null=True, blank=True, related_name='weekly_schedules')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, related_name='weekly_schedules')
+    month = models.CharField(max_length=7, default='2026-02')  # صيغة YYYY-MM
+    week_number = models.IntegerField(default=1)  # 1 = الأسبوع الأول, 2 = الأسبوع الثاني, 3 = الأسبوع الثالث, 4 = الأسبوع الرابع, 5 = الأسبوع الخامس
+    day_of_week = models.IntegerField(default=0)  # 0=الأحد, 1=الإثنين, 2=الثلاثاء, 3=الأربعاء, 4=الخميس, 5=الجمعة, 6=السبت
+    start_time = models.TimeField(default=datetime.time(9, 0))
+    end_time = models.TimeField(default=datetime.time(11, 0))
+    session_title = models.CharField(max_length=150, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mosque_weekly_schedules'
+        ordering = ['week_number', 'day_of_week', 'start_time']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['center', 'project', 'month', 'week_number', 'day_of_week'],
+                name='unique_center_project_schedule_slot'
+            )
+        ]
+
+    def __str__(self):
+        return f"Week {self.week_number} Day {self.day_of_week} ({self.start_time}-{self.end_time})"

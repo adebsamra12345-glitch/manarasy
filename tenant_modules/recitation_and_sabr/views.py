@@ -120,6 +120,17 @@ def recitation_evaluate_view(request):
             att.behavior_score = b_score
             att.save(using=db_name)
 
+        # ─── منع التقييم المكرر للصفحة نفسها في نفس الجلسة ───
+        if att and RecitationLog.objects.using(db_name).filter(
+            attendance=att,
+            page_number=page_num
+        ).exists():
+            return JsonResponse({
+                "status": "error",
+                "message": f"تم تقييم الصفحة ({page_num}) مسبقاً في هذه الجلسة. لا يمكن إضافة تقييم مكرر لنفس الصفحة.",
+                "code": "ALREADY_EVALUATED"
+            }, status=409)
+
         # تسجيل عملية التسميع
         rec = RecitationLog.objects.using(db_name).create(
             attendance=att,
@@ -213,3 +224,88 @@ def recitation_list_create_view(request):
             return JsonResponse({"status": "error", "message": "حدث خطأ أثناء جلب سجل التسميع", "details": str(e)}, status=500)
 
     return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+def update_recitation_view(request, recitation_id):
+    """
+    تعديل تقييم تسميع موجود (PUT)
+    - مسموح فقط قبل حفظ الجلسة (is_active=True على الجلسة الأم)
+    - بعد حفظ الجلسة (is_active=False) يُرفض الطلب
+    """
+    if request.method != 'PUT':
+        return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
+
+    try:
+        db_name = get_tenant_db(request)
+
+        # جلب سجل التسميع
+        try:
+            rec = RecitationLog.objects.using(db_name).select_related(
+                'attendance__session', 'evaluation_grade'
+            ).get(id=recitation_id)
+        except RecitationLog.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "سجل التسميع غير موجود"}, status=404)
+
+        # ─── التحقق من حالة الجلسة: هل هي محفوظة/مقفلة؟ ───
+        session = None
+        if rec.attendance_id:
+            try:
+                att = AttendanceLog.objects.using(db_name).select_related('session').get(
+                    id=rec.attendance_id
+                )
+                session = att.session
+            except AttendanceLog.DoesNotExist:
+                pass
+
+        if session and not session.is_active:
+            return JsonResponse({
+                "status": "error",
+                "message": "لا يمكن تعديل التقييم بعد حفظ الجلسة واعتمادها. الجلسة مغلقة للقراءة فقط.",
+                "code": "SESSION_LOCKED"
+            }, status=403)
+
+        data = parse_body(request)
+        evaluation_grade_id = data.get('evaluation_grade_id')
+        grade_input = data.get('grade')
+        notes = data.get('notes', rec.notes or '')
+
+        # تحديث فئة التقييم
+        eval_grade = None
+        requires_repeat = False
+        grade_name = grade_input or rec.grade
+
+        if evaluation_grade_id:
+            try:
+                eval_grade = EvaluationGrade.objects.using(db_name).get(id=evaluation_grade_id)
+                grade_name = eval_grade.name
+                requires_repeat = eval_grade.requires_repeat
+            except EvaluationGrade.DoesNotExist:
+                return JsonResponse({"status": "error", "message": "فئة التقييم المحددة غير موجودة"}, status=404)
+
+        # تحديث سجل التسميع
+        rec.evaluation_grade = eval_grade
+        rec.grade = grade_name
+        rec.requires_repeat = requires_repeat
+        rec.notes = notes
+        rec.save(using=db_name)
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"تم تعديل تقييم الصفحة ({rec.page_number}) بنجاح",
+            "data": {
+                "recitation_id": str(rec.id),
+                "page_number": rec.page_number,
+                "grade": grade_name,
+                "requires_repeat": requires_repeat,
+                "color_code": eval_grade.color_code if eval_grade else None,
+                "notes": notes
+            }
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({
+            "status": "error",
+            "message": "حدث خطأ أثناء تعديل التقييم",
+            "details": str(e)
+        }, status=500)

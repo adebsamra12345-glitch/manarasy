@@ -259,6 +259,8 @@ def tenant_login_view(request):
             print(parts[0])
             return parts[0]
         return None
+    if request.method == 'OPTIONS':
+        return JsonResponse({}, status=200)
     if request.method != 'POST':
         return JsonResponse({"status": "error", "message": "Method not allowed"}, status=405)
 
@@ -337,6 +339,17 @@ def tenant_login_view(request):
                 "message": "اسم المستخدم أو كلمة المرور غير صحيحة"
             }, status=401)
 
+        profile_center_id = None
+        profile_center_name = None
+        if target_user:
+            try:
+                prof = UserProfile.objects.using(db_name).select_related('center').get(user=target_user)
+                if prof.center:
+                    profile_center_id = str(prof.center.id)
+                    profile_center_name = prof.center.name
+            except Exception:
+                pass
+
         # 4. توليد JWT Tokens
         jwt_secret = getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY)
         access_lifetime = getattr(settings, 'JWT_ACCESS_TOKEN_LIFETIME_MINUTES', 60)
@@ -348,6 +361,8 @@ def tenant_login_view(request):
             "username": target_user.username if target_user else username,
             "user_id": str(target_user.id) if target_user else None,
             "role": role,
+            "center_id": profile_center_id,
+            "center_name": profile_center_name,
             "exp": now + timedelta(minutes=int(access_lifetime)),
             "iat": now
         }
@@ -369,7 +384,9 @@ def tenant_login_view(request):
                 "user": {
                     "id": str(target_user.id) if target_user else None,
                     "username": target_user.username if target_user else username,
-                    "role": role
+                    "role": role,
+                    "center_id": profile_center_id,
+                    "center_name": profile_center_name
                 }
             }
         }, status=200)

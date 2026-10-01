@@ -13,6 +13,6 @@ urlpatterns = [
     path('requests/', account_request_list_view, name='account_request_list'),
     path('requests/<uuid:pk>/approve/', account_request_approve_view, name='account_request_approve'),
     path('requests/<uuid:pk>/reject/', account_request_reject_view, name='account_request_reject'),
-    path('<int:pk>/', user_detail_view, name='user_detail'),
+    path('<uuid:pk>/', user_detail_view, name='user_detail'),
     path('<uuid:pk>/impersonate/', user_impersonate_view, name='user_impersonate'),
 ]

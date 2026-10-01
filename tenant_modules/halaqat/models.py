@@ -8,7 +8,6 @@ class Halaqa(models.Model):
     project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True, related_name='halaqat')
     name = models.CharField(max_length=150)
     teacher_name = models.CharField(max_length=150)
-    max_students = models.IntegerField(default=20)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(null=True, blank=True)

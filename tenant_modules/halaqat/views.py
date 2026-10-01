@@ -10,6 +10,7 @@ from django.db.models import Q
 from core_system.tenants.models import Tenant
 from tenant_modules.centers_and_projects.models import Center, Project
 from tenant_modules.users.models import UserProfile
+from tenant_modules.students_and_parents.models import Student
 from .models import Halaqa
 
 def parse_body(request):
@@ -24,10 +25,10 @@ def get_tenant_db(request):
     tenant_id = request.headers.get('Tenant-ID')
     if not tenant_id:
         raise ValueError("ترويسة Tenant-ID مفقودة في الطلب")
-    
+
     tenant = Tenant.objects.using('default').get(id=tenant_id)
     db_name = tenant.db_name
-    
+
     if db_name not in settings.DATABASES:
         new_db_config = settings.DATABASES['default'].copy()
         new_db_config.update({
@@ -38,8 +39,61 @@ def get_tenant_db(request):
             'PORT': tenant.db_port or 5432,
         })
         settings.DATABASES[db_name] = new_db_config
-        
+
     return db_name
+
+
+def get_token_payload(request):
+    """استخراج بيانات التوكن من الطلب بدون رمي استثناء."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ')[1]
+    try:
+        jwt_secret = getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY)
+        return jwt.decode(token, jwt_secret, algorithms=["HS256"])
+    except Exception:
+        return None
+
+
+def get_teacher_name_from_token(request, db_name):
+    """
+    يُعيد (teacher_name: str) إذا كان المستخدم معلماً مصادقاً،
+    أو يُعيد (None) إذا كان أدمناً أو مديراً (لا حاجة للتصفية),
+    أو يرمي ValueError بكود مناسب إذا فشل التحقق.
+
+    أكواد الخطأ:
+        - "AUTH_REQUIRED"    : لا يوجد توكن أو التوكن غير صالح
+        - "FORBIDDEN"        : الدور غير مسموح له بالوصول
+        - "TEACHER_NOT_FOUND": المعلم غير موجود أو غير نشط في قاعدة البيانات
+    """
+    payload = get_token_payload(request)
+    if payload is None:
+        raise ValueError("AUTH_REQUIRED")
+
+    role = payload.get('role', '')
+
+    # الأدمن ومدير المركز يملكان صلاحية رؤية كل الحلقات — لا تصفية
+    if role in ('TENANT_ADMIN', 'CENTER_MANAGER'):
+        return None
+
+    if role != 'TEACHER':
+        raise ValueError("FORBIDDEN")
+
+    user_id = payload.get('user_id')
+    if not user_id:
+        raise ValueError("AUTH_REQUIRED")
+
+    try:
+        prof = UserProfile.objects.using(db_name).select_related('user').get(
+            user__id=user_id, role='TEACHER', is_active=True
+        )
+    except UserProfile.DoesNotExist:
+        raise ValueError("TEACHER_NOT_FOUND")
+
+    teacher_name = f"{prof.user.first_name} {prof.user.last_name}".strip() or prof.user.username
+    return teacher_name
+
 
 def check_halaqa_permission(request, db_name, center=None):
     """التحقق من صلاحيات مدير النظام أو مدير المركز لعمليات الحلقات"""
@@ -47,7 +101,7 @@ def check_halaqa_permission(request, db_name, center=None):
     if not auth_header or not auth_header.startswith('Bearer '):
         return False
     token = auth_header.split(' ')[1]
-    
+
     try:
         jwt_secret = getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY)
         payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
@@ -68,9 +122,15 @@ def check_halaqa_permission(request, db_name, center=None):
 
         # بالنسبة لمدير المركز، يجب أن يكون مديراً للمركز التابعة له الحلقة
         if center:
-            if not center.manager:
-                return False
-            if center.manager.username != username and (not user_id or str(center.manager.id) != str(user_id)):
+            is_manager_of_center = False
+            if center.manager and (center.manager.username == username or (user_id and str(center.manager.id) == str(user_id))):
+                is_manager_of_center = True
+            elif user_id and UserProfile.objects.using(db_name).filter(user__id=user_id, center=center, role='CENTER_MANAGER').exists():
+                is_manager_of_center = True
+            elif username and UserProfile.objects.using(db_name).filter(user__username=username, center=center, role='CENTER_MANAGER').exists():
+                is_manager_of_center = True
+
+            if not is_manager_of_center:
                 return False
 
         return True
@@ -129,7 +189,42 @@ def halaqa_list_create_view(request):
 
     if request.method == 'GET':
         try:
-            halaqat = Halaqa.objects.using(db_name).filter(is_active=True).select_related('center', 'project').order_by('-created_at')
+            # --- تحديد المعلم من التوكن وتصفية الحلقات بناءً على صلاحيته ---
+            try:
+                teacher_name = get_teacher_name_from_token(request, db_name)
+            except ValueError as auth_err:
+                err_code = str(auth_err)
+                if err_code == "AUTH_REQUIRED":
+                    return JsonResponse({"status": "error", "message": "يجب تسجيل الدخول للوصول إلى الحلقات"}, status=401)
+                elif err_code == "FORBIDDEN":
+                    return JsonResponse({"status": "error", "message": "لا تملك صلاحية الوصول إلى الحلقات"}, status=403)
+                elif err_code == "TEACHER_NOT_FOUND":
+                    return JsonResponse({"status": "error", "message": "لم يُعثر على ملف المعلم النشط"}, status=403)
+                else:
+                    return JsonResponse({"status": "error", "message": "خطأ في التحقق من الهوية"}, status=401)
+
+            halaqat = Halaqa.objects.using(db_name).filter(is_active=True)
+
+            # إذا كان المستخدم معلماً، نُصفّي الحلقات المخصصة له فقط
+            if teacher_name is not None:
+                halaqat = halaqat.filter(teacher_name=teacher_name)
+
+            payload = get_token_payload(request)
+            if payload and payload.get('role') == 'CENTER_MANAGER':
+                username = payload.get('username')
+                user_id = payload.get('user_id')
+                try:
+                    prof = UserProfile.objects.using(db_name).get(user__username=username) if username else None
+                    if not prof and user_id:
+                        prof = UserProfile.objects.using(db_name).get(user__id=user_id)
+                    if prof and prof.center:
+                        halaqat = halaqat.filter(center=prof.center)
+                    else:
+                        halaqat = halaqat.none()
+                except Exception:
+                    halaqat = halaqat.none()
+
+            halaqat = halaqat.select_related('center', 'project').order_by('-created_at')
             res = []
             for h in halaqat:
                 res.append({
@@ -140,7 +235,9 @@ def halaqa_list_create_view(request):
                     "project_title": h.project.title if h.project else None,
                     "name": h.name,
                     "teacher_name": h.teacher_name,
-                    "max_students": h.max_students,
+                    "students_count": Student.objects.using(db_name).filter(
+                        Q(halaqa=h) | Q(enrollments__halaqa=h, enrollments__is_active=True)
+                    ).distinct().count(),
                     "is_active": h.is_active,
                     "created_at": h.created_at.isoformat() if h.created_at else None,
                     "deleted_at": h.deleted_at.isoformat() if h.deleted_at else None
@@ -154,14 +251,13 @@ def halaqa_list_create_view(request):
         try:
             data = parse_body(request)
             name = data.get('name')
-            teacher_name = data.get('teacher_name')
             teacher_id = data.get('teacher_id')
             center_id = data.get('center_id')
             project_id = data.get('project_id')
             confirm_duplicate = data.get('confirm_duplicate', False)
 
-            if not name or (not teacher_name and not teacher_id):
-                return JsonResponse({"status": "error", "message": "اسم الحلقة واسم/معرف المعلم مطلوبان"}, status=400)
+            if not name or not teacher_id:
+                return JsonResponse({"status": "error", "message": "اسم الحلقة ومعرف المعلم (teacher_id) مطلوبان"}, status=400)
 
             if not center_id:
                 return JsonResponse({"status": "error", "message": "يجب اختيار وتحديد المركز (center_id) لربطه بالحلقة والمعلم"}, status=400)
@@ -184,7 +280,7 @@ def halaqa_list_create_view(request):
 
             # التحقق من أن المعلم ينتمي كمعلم نشط لنفس المركز
             try:
-                teacher_prof, resolved_teacher_name = validate_and_get_teacher(db_name, center, teacher_id=teacher_id, teacher_name=teacher_name)
+                teacher_prof, resolved_teacher_name = validate_and_get_teacher(db_name, center, teacher_id=teacher_id)
             except ValueError as ve:
                 return JsonResponse({"status": "error", "message": str(ve)}, status=400)
 
@@ -223,7 +319,6 @@ def halaqa_list_create_view(request):
                 teacher_name=resolved_teacher_name,
                 center=center,
                 project=project,
-                max_students=data.get('max_students', 20),
                 is_active=True
             )
 
@@ -238,7 +333,7 @@ def halaqa_list_create_view(request):
                     "center_name": halaqa.center.name if halaqa.center else None,
                     "project_id": str(halaqa.project.id) if halaqa.project else None,
                     "project_title": halaqa.project.title if halaqa.project else None,
-                    "max_students": halaqa.max_students,
+                    "students_count": 0,
                     "is_active": halaqa.is_active,
                     "created_at": halaqa.created_at.isoformat()
                 }
@@ -263,6 +358,35 @@ def halaqa_detail_view(request, pk):
         return JsonResponse({"status": "error", "message": "الحلقة المطلوبة غير موجودة"}, status=404)
 
     if request.method == 'GET':
+        # --- التحقق من صلاحية الوصول: المعلم يرى حلقته فقط ---
+        try:
+            teacher_name = get_teacher_name_from_token(request, db_name)
+        except ValueError as auth_err:
+            err_code = str(auth_err)
+            if err_code == "AUTH_REQUIRED":
+                return JsonResponse({"status": "error", "message": "يجب تسجيل الدخول للوصول إلى تفاصيل الحلقة"}, status=401)
+            elif err_code in ("FORBIDDEN", "TEACHER_NOT_FOUND"):
+                return JsonResponse({"status": "error", "message": "لا تملك صلاحية الوصول إلى هذه الحلقة"}, status=403)
+            else:
+                return JsonResponse({"status": "error", "message": "خطأ في التحقق من الهوية"}, status=401)
+
+        # إذا كان معلماً، نتحقق أن الحلقة مخصصة له بالضبط
+        if teacher_name is not None and halaqa.teacher_name != teacher_name:
+            return JsonResponse({"status": "error", "message": "غير مصرح لك بالوصول إلى هذه الحلقة"}, status=403)
+
+        payload = get_token_payload(request)
+        if payload and payload.get('role') == 'CENTER_MANAGER':
+            username = payload.get('username')
+            user_id = payload.get('user_id')
+            try:
+                prof = UserProfile.objects.using(db_name).get(user__username=username) if username else None
+                if not prof and user_id:
+                    prof = UserProfile.objects.using(db_name).get(user__id=user_id)
+                if not prof or not prof.center or not halaqa.center or str(prof.center.id) != str(halaqa.center.id):
+                    return JsonResponse({"status": "error", "message": "غير مصرح لمدير المركز بالوصول إلى حلقات خارج مركزه"}, status=403)
+            except Exception:
+                return JsonResponse({"status": "error", "message": "غير مصرح لمدير المركز بالوصول إلى حلقات خارج مركزه"}, status=403)
+
         return JsonResponse({
             "status": "success",
             "data": {
@@ -273,7 +397,9 @@ def halaqa_detail_view(request, pk):
                 "project_title": halaqa.project.title if halaqa.project else None,
                 "name": halaqa.name,
                 "teacher_name": halaqa.teacher_name,
-                "max_students": halaqa.max_students,
+                "students_count": Student.objects.using(db_name).filter(
+                    Q(halaqa=halaqa) | Q(enrollments__halaqa=halaqa, enrollments__is_active=True)
+                ).distinct().count(),
                 "is_active": halaqa.is_active,
                 "created_at": halaqa.created_at.isoformat() if halaqa.created_at else None,
                 "deleted_at": halaqa.deleted_at.isoformat() if halaqa.deleted_at else None
@@ -314,7 +440,6 @@ def halaqa_detail_view(request, pk):
             halaqa.name = data.get('name', halaqa.name).strip()
             halaqa.teacher_name = resolved_teacher_name
             halaqa.center = center
-            halaqa.max_students = data.get('max_students', halaqa.max_students)
             if 'is_active' in data:
                 halaqa.is_active = data['is_active']
             halaqa.save(using=db_name)
